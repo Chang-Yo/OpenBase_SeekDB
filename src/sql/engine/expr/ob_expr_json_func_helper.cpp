@@ -106,6 +106,19 @@ int ObJsonExprHelper::get_json_schema(const ObExpr &expr, ObEvalCtx &ctx,
   return ret;
 }
 
+// JSON document functions always evaluate their first argument. Evaluate that
+// document in batches so nested AI_EMBED retains its cross-row request batching.
+int ObJsonExprHelper::eval_json_doc_batch(const ObExpr &expr, ObEvalCtx &ctx,
+                                        const ObBitVector &skip, const int64_t batch_size)
+{
+  int ret = OB_SUCCESS;
+  if (OB_FAIL(expr.args_[0]->eval_batch(ctx, skip, batch_size))) {
+  } else {
+    ret = expr_default_eval_batch_func(expr, ctx, skip, batch_size);
+  }
+  return ret;
+}
+
 int ObJsonExprHelper::get_json_doc(const ObExpr &expr, ObEvalCtx &ctx,
                                     MultimodeAlloctor &allocator,
                                     uint16_t index, ObIJsonBase*& j_base,

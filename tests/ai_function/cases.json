@@ -1,0 +1,478 @@
+[
+  {
+    "name": "setup-models",
+    "sql": "CALL DBMS_AI_SERVICE.CREATE_AI_MODEL('regression_c','{\"type\": \"completion\", \"model_name\": \"regression_c\"}');\nCALL DBMS_AI_SERVICE.CREATE_AI_MODEL_ENDPOINT('regression_c_ep','{\"ai_model_name\": \"regression_c\", \"scope\": \"all\", \"url\": \"http://127.0.0.1:18080/v1/chat/completions\", \"access_key\": \"mock-key\", \"provider\": \"openai\"}');\nCALL DBMS_AI_SERVICE.CREATE_AI_MODEL('regression_e','{\"type\": \"dense_embedding\", \"model_name\": \"regression_e\"}');\nCALL DBMS_AI_SERVICE.CREATE_AI_MODEL_ENDPOINT('regression_e_ep','{\"ai_model_name\": \"regression_e\", \"scope\": \"all\", \"url\": \"http://127.0.0.1:18080/v1/embeddings\", \"access_key\": \"mock-key\", \"provider\": \"openai\"}');\nCALL DBMS_AI_SERVICE.CREATE_AI_MODEL('regression_r','{\"type\": \"rerank\", \"model_name\": \"regression_r\"}');\nCALL DBMS_AI_SERVICE.CREATE_AI_MODEL_ENDPOINT('regression_r_ep','{\"ai_model_name\": \"regression_r\", \"scope\": \"all\", \"url\": \"http://127.0.0.1:18080/v1/rerank/shuffle\", \"access_key\": \"mock-key\", \"provider\": \"siliconflow\"}');\nCALL DBMS_AI_SERVICE.CREATE_AI_MODEL('regression_oc','{\"type\": \"completion\", \"model_name\": \"regression_oc\"}');\nCALL DBMS_AI_SERVICE.CREATE_AI_MODEL_ENDPOINT('regression_oc_ep','{\"ai_model_name\": \"regression_oc\", \"scope\": \"all\", \"url\": \"http://127.0.0.1:18080/api/generate\", \"access_key\": \"\", \"provider\": \"oLlAmA\"}');\nCALL DBMS_AI_SERVICE.CREATE_AI_MODEL('regression_oe','{\"type\": \"dense_embedding\", \"model_name\": \"regression_oe\"}');\nCALL DBMS_AI_SERVICE.CREATE_AI_MODEL_ENDPOINT('regression_oe_ep','{\"ai_model_name\": \"regression_oe\", \"scope\": \"all\", \"url\": \"http://127.0.0.1:18080/api/embed\", \"access_key\": \"\", \"provider\": \"OLLAMA\"}');\nCALL DBMS_AI_SERVICE.CREATE_AI_MODEL('regression_es','{\"type\": \"dense_embedding\", \"model_name\": \"regression_es\"}');\nCALL DBMS_AI_SERVICE.CREATE_AI_MODEL_ENDPOINT('regression_es_ep','{\"ai_model_name\": \"regression_es\", \"scope\": \"all\", \"url\": \"http://127.0.0.1:18080/v1/embeddings/shuffle\", \"access_key\": \"mock-key\", \"provider\": \"openai\"}');",
+    "expected_rows": [],
+    "request_count": 0
+  },
+  {
+    "name": "setup-batch",
+    "sql": "CREATE TABLE regression_batch(id INT PRIMARY KEY, content TEXT); INSERT INTO regression_batch VALUES (1,'row-1'),(2,NULL),(3,'row-3'),(4,'row-4'),(5,'row-5'),(6,'row-6'),(7,'row-7'),(8,'row-8'),(9,'row-9'),(10,'row-10'),(11,'row-11'),(12,'row-12'),(13,'row-13'),(14,'row-14'),(15,'row-15'),(16,'row-16'),(17,'row-17'),(18,'row-18'),(19,'row-19'),(20,'row-20'),(21,'row-21'),(22,NULL),(23,'row-23'),(24,'row-24'),(25,'row-25'),(26,'row-26'),(27,'row-27'),(28,'row-28'),(29,'row-29'),(30,'row-30'),(31,'row-31'),(32,'row-32'),(33,'row-33'),(34,'row-34'),(35,'row-35'),(36,'row-36'),(37,'row-37'),(38,'row-38'),(39,'row-39'),(40,'row-40'),(41,'row-41'),(42,'row-42'),(43,'row-43'),(44,NULL),(45,'row-45'),(46,'row-46'),(47,'row-47'),(48,'row-48');",
+    "expected_rows": [],
+    "request_count": 0
+  },
+  {
+    "name": "restore-normal-endpoints",
+    "sql": "CALL DBMS_AI_SERVICE.ALTER_AI_MODEL_ENDPOINT('regression_c_ep','{\"url\":\"http://127.0.0.1:18080/v1/chat/completions\"}'); CALL DBMS_AI_SERVICE.ALTER_AI_MODEL_ENDPOINT('regression_e_ep','{\"url\":\"http://127.0.0.1:18080/v1/embeddings\"}');",
+    "expected_rows": [],
+    "request_count": 0
+  },
+  {
+    "name": "complete-plain",
+    "sql": "SELECT ai_complete('regression_c','hello') = 'echo:hello';",
+    "expected_rows": [
+      "1"
+    ],
+    "request_count": 1
+  },
+  {
+    "name": "complete-null-config",
+    "sql": "SELECT ai_complete('regression_c','hello',NULL) = 'echo:hello';",
+    "expected_rows": [
+      "1"
+    ],
+    "request_count": 1
+  },
+  {
+    "name": "complete-config-json",
+    "sql": "SELECT ai_complete('regression_c','hello',JSON_OBJECT('temperature',0.2,'max_tokens',16)) = 'echo:hello';",
+    "expected_rows": [
+      "1"
+    ],
+    "request_count": 1
+  },
+  {
+    "name": "complete-config-text",
+    "sql": "SELECT ai_complete('regression_c','hello','{\"top_p\":0.7}') = 'echo:hello';",
+    "expected_rows": [
+      "1"
+    ],
+    "request_count": 1
+  },
+  {
+    "name": "complete-unicode-escapes",
+    "sql": "SELECT ai_complete('regression_c','你好😀\"\\\\\nend') = 'echo:你好😀\"\\\\\nend';",
+    "expected_rows": [
+      "1"
+    ],
+    "request_count": 1
+  },
+  {
+    "name": "prompt-repeated",
+    "sql": "SELECT ai_complete('regression_c',ai_prompt('{0}/{0}/{1}','a','b')) = 'echo:a/a/b';",
+    "expected_rows": [
+      "1"
+    ],
+    "request_count": 1
+  },
+  {
+    "name": "prompt-nested",
+    "sql": "SELECT ai_complete('regression_c',ai_prompt('outer({0})',ai_prompt('inner:{0}','x'))) = 'echo:outer(inner:x)';",
+    "expected_rows": [
+      "1"
+    ],
+    "request_count": 1
+  },
+  {
+    "name": "prompt-missing-index",
+    "sql": "SELECT ai_complete('regression_c',ai_prompt('{1}','a'));",
+    "expected_errno": 1210,
+    "request_count": 0
+  },
+  {
+    "name": "invalid-config-[]",
+    "sql": "SELECT ai_complete('regression_c','x','[]');",
+    "expected_errno": 1210,
+    "request_count": 0
+  },
+  {
+    "name": "invalid-config-123",
+    "sql": "SELECT ai_complete('regression_c','x','123');",
+    "expected_errno": 1210,
+    "request_count": 0
+  },
+  {
+    "name": "invalid-config-{\"model\":\"x\"}",
+    "sql": "SELECT ai_complete('regression_c','x','{\"model\":\"x\"}');",
+    "expected_errno": 1210,
+    "request_count": 0
+  },
+  {
+    "name": "invalid-config-{\"stream\":true}",
+    "sql": "SELECT ai_complete('regression_c','x','{\"stream\":true}');",
+    "expected_errno": 1210,
+    "request_count": 0
+  },
+  {
+    "name": "invalid-config-{\"temperature\":3}",
+    "sql": "SELECT ai_complete('regression_c','x','{\"temperature\":3}');",
+    "expected_errno": 1210,
+    "request_count": 0
+  },
+  {
+    "name": "invalid-config-{\"top_p\":-1}",
+    "sql": "SELECT ai_complete('regression_c','x','{\"top_p\":-1}');",
+    "expected_errno": 1210,
+    "request_count": 0
+  },
+  {
+    "name": "invalid-config-{\"max_tokens\":0}",
+    "sql": "SELECT ai_complete('regression_c','x','{\"max_tokens\":0}');",
+    "expected_errno": 1210,
+    "request_count": 0
+  },
+  {
+    "name": "invalid-config-{\"response_format\":[]}",
+    "sql": "SELECT ai_complete('regression_c','x','{\"response_format\":[]}');",
+    "expected_errno": 1210,
+    "request_count": 0
+  },
+  {
+    "name": "embed-default",
+    "sql": "SELECT json_length(ai_embed('regression_e','same')) = 3;",
+    "expected_rows": [
+      "1"
+    ],
+    "request_count": 1
+  },
+  {
+    "name": "embed-explicit",
+    "sql": "SELECT json_length(ai_embed('regression_e','same',768)) = 768;",
+    "expected_rows": [
+      "1"
+    ],
+    "request_count": 1
+  },
+  {
+    "name": "embed-invalid-dimension-0",
+    "sql": "SELECT ai_embed('regression_e','same',0);",
+    "expected_errno": 1210,
+    "request_count": 0
+  },
+  {
+    "name": "embed-invalid-dimension--1",
+    "sql": "SELECT ai_embed('regression_e','same',-1);",
+    "expected_errno": 1210,
+    "request_count": 0
+  },
+  {
+    "name": "embed-invalid-dimension-1.5",
+    "sql": "SELECT ai_embed('regression_e','same',1.5);",
+    "expected_errno": 1210,
+    "request_count": 0
+  },
+  {
+    "name": "embed-invalid-dimension-NULL",
+    "sql": "SELECT ai_embed('regression_e','same',NULL);",
+    "expected_errno": 1210,
+    "request_count": 0
+  },
+  {
+    "name": "embed-null",
+    "sql": "SELECT ai_embed('regression_e',NULL) IS NULL;",
+    "expected_rows": [
+      "1"
+    ],
+    "request_count": 0
+  },
+  {
+    "name": "ollama-complete",
+    "sql": "SELECT ai_complete('regression_oc','hello','{\"max_tokens\":8,\"temperature\":0.1}') = 'echo:hello';",
+    "expected_rows": [
+      "1"
+    ],
+    "request_count": 1
+  },
+  {
+    "name": "ollama-json-schema",
+    "sql": "SELECT ai_complete('regression_oc','hello','{\"response_format\":{\"type\":\"json_schema\",\"json_schema\":{\"name\":\"test\",\"schema\":{\"type\":\"object\"}}}}') = 'echo:hello';",
+    "expected_rows": [
+      "1"
+    ],
+    "request_count": 1
+  },
+  {
+    "name": "ollama-embed",
+    "sql": "SELECT json_length(ai_embed('regression_oe','hello')) = 3;",
+    "expected_rows": [
+      "1"
+    ],
+    "request_count": 1
+  },
+  {
+    "name": "ollama-alter-provider",
+    "sql": "CALL DBMS_AI_SERVICE.ALTER_AI_MODEL_ENDPOINT('regression_oc_ep','{\"provider\":\"Ollama\"}'); SELECT ai_complete('regression_oc','after') = 'echo:after';",
+    "expected_rows": [
+      "1"
+    ],
+    "request_count": 1
+  },
+  {
+    "name": "rerank-strings",
+    "sql": "SELECT JSON_EXTRACT(ai_rerank('regression_r','query','[\"a\",\"ccc\",\"bb\"]'), '$[0].index') = 1;",
+    "expected_rows": [
+      "1"
+    ],
+    "request_count": 1
+  },
+  {
+    "name": "rerank-45-stable",
+    "sql": "SELECT JSON_EXTRACT(ai_rerank('regression_r','query','[{\"id\":0,\"text\":\"x\",\"keep\":{\"i\":0}},{\"id\":1,\"text\":\"xx\",\"keep\":{\"i\":1}},{\"id\":2,\"text\":\"xxx\",\"keep\":{\"i\":2}},{\"id\":3,\"text\":\"xxxx\",\"keep\":{\"i\":3}},{\"id\":4,\"text\":\"xxxxx\",\"keep\":{\"i\":4}},{\"id\":5,\"text\":\"xxxxxx\",\"keep\":{\"i\":5}},{\"id\":6,\"text\":\"xxxxxxx\",\"keep\":{\"i\":6}},{\"id\":7,\"text\":\"x\",\"keep\":{\"i\":7}},{\"id\":8,\"text\":\"xx\",\"keep\":{\"i\":8}},{\"id\":9,\"text\":\"xxx\",\"keep\":{\"i\":9}},{\"id\":10,\"text\":\"xxxx\",\"keep\":{\"i\":10}},{\"id\":11,\"text\":\"xxxxx\",\"keep\":{\"i\":11}},{\"id\":12,\"text\":\"xxxxxx\",\"keep\":{\"i\":12}},{\"id\":13,\"text\":\"xxxxxxx\",\"keep\":{\"i\":13}},{\"id\":14,\"text\":\"x\",\"keep\":{\"i\":14}},{\"id\":15,\"text\":\"xx\",\"keep\":{\"i\":15}},{\"id\":16,\"text\":\"xxx\",\"keep\":{\"i\":16}},{\"id\":17,\"text\":\"xxxx\",\"keep\":{\"i\":17}},{\"id\":18,\"text\":\"xxxxx\",\"keep\":{\"i\":18}},{\"id\":19,\"text\":\"xxxxxx\",\"keep\":{\"i\":19}},{\"id\":20,\"text\":\"xxxxxxx\",\"keep\":{\"i\":20}},{\"id\":21,\"text\":\"x\",\"keep\":{\"i\":21}},{\"id\":22,\"text\":\"xx\",\"keep\":{\"i\":22}},{\"id\":23,\"text\":\"xxx\",\"keep\":{\"i\":23}},{\"id\":24,\"text\":\"xxxx\",\"keep\":{\"i\":24}},{\"id\":25,\"text\":\"xxxxx\",\"keep\":{\"i\":25}},{\"id\":26,\"text\":\"xxxxxx\",\"keep\":{\"i\":26}},{\"id\":27,\"text\":\"xxxxxxx\",\"keep\":{\"i\":27}},{\"id\":28,\"text\":\"x\",\"keep\":{\"i\":28}},{\"id\":29,\"text\":\"xx\",\"keep\":{\"i\":29}},{\"id\":30,\"text\":\"xxx\",\"keep\":{\"i\":30}},{\"id\":31,\"text\":\"xxxx\",\"keep\":{\"i\":31}},{\"id\":32,\"text\":\"xxxxx\",\"keep\":{\"i\":32}},{\"id\":33,\"text\":\"xxxxxx\",\"keep\":{\"i\":33}},{\"id\":34,\"text\":\"xxxxxxx\",\"keep\":{\"i\":34}},{\"id\":35,\"text\":\"x\",\"keep\":{\"i\":35}},{\"id\":36,\"text\":\"xx\",\"keep\":{\"i\":36}},{\"id\":37,\"text\":\"xxx\",\"keep\":{\"i\":37}},{\"id\":38,\"text\":\"xxxx\",\"keep\":{\"i\":38}},{\"id\":39,\"text\":\"xxxxx\",\"keep\":{\"i\":39}},{\"id\":40,\"text\":\"xxxxxx\",\"keep\":{\"i\":40}},{\"id\":41,\"text\":\"xxxxxxx\",\"keep\":{\"i\":41}},{\"id\":42,\"text\":\"x\",\"keep\":{\"i\":42}},{\"id\":43,\"text\":\"xx\",\"keep\":{\"i\":43}},{\"id\":44,\"text\":\"xxx\",\"keep\":{\"i\":44}}]','text'), '$[*].id') = CAST('[6, 13, 20, 27, 34, 41, 5, 12, 19, 26, 33, 40, 4, 11, 18, 25, 32, 39, 3, 10, 17, 24, 31, 38, 2, 9, 16, 23, 30, 37, 44, 1, 8, 15, 22, 29, 36, 43, 0, 7, 14, 21, 28, 35, 42]' AS JSON);",
+    "expected_rows": [
+      "1"
+    ],
+    "request_count": 3
+  },
+  {
+    "name": "rerank-preserves-fields",
+    "sql": "SELECT JSON_EXTRACT(ai_rerank('regression_r','q','[{\"id\":1,\"text\":\"xx\",\"keep\":{\"v\":5}}]','text'),'$[0].keep.v') = 5;",
+    "expected_rows": [
+      "1"
+    ],
+    "request_count": 1
+  },
+  {
+    "name": "batch-45-valid-3-null-shuffled",
+    "sql": "SELECT id, ROUND(CAST(JSON_EXTRACT(ai_embed('regression_es',content),'$[0]') AS DECIMAL(20,8))*10000) FROM regression_batch ORDER BY id;",
+    "expected_rows": [
+      "1\t3519",
+      "2\tNULL",
+      "3\t1271",
+      "4\t2504",
+      "5\t3875",
+      "6\t297",
+      "7\t991",
+      "8\t1088",
+      "9\t4105",
+      "10\t8307",
+      "11\t9642",
+      "12\t6025",
+      "13\t4370",
+      "14\t6328",
+      "15\t9201",
+      "16\t3698",
+      "17\t1434",
+      "18\t9305",
+      "19\t8920",
+      "20\t1610",
+      "21\t1544",
+      "22\tNULL",
+      "23\t6408",
+      "24\t3136",
+      "25\t3301",
+      "26\t4054",
+      "27\t3760",
+      "28\t5609",
+      "29\t3193",
+      "30\t1128",
+      "31\t2572",
+      "32\t624",
+      "33\t7660",
+      "34\t4022",
+      "35\t4267",
+      "36\t712",
+      "37\t9436",
+      "38\t6114",
+      "39\t950",
+      "40\t143",
+      "41\t2919",
+      "42\t8507",
+      "43\t2212",
+      "44\tNULL",
+      "45\t6446",
+      "46\t6616",
+      "47\t7288",
+      "48\t3530"
+    ],
+    "request_count": 3
+  },
+  {
+    "name": "batch-limit",
+    "sql": "SELECT id,json_length(ai_embed('regression_e',content)) FROM regression_batch ORDER BY id LIMIT 1;",
+    "expected_rows": [
+      "1\t3"
+    ],
+    "request_count": 1
+  },
+  {
+    "name": "batch-filter",
+    "sql": "SELECT id,json_length(ai_embed('regression_e',content)) FROM regression_batch WHERE id=3;",
+    "expected_rows": [
+      "3\t3"
+    ],
+    "request_count": 1
+  },
+  {
+    "name": "c-response-missing",
+    "sql": "CALL DBMS_AI_SERVICE.ALTER_AI_MODEL_ENDPOINT('regression_c_ep','{\"url\": \"http://127.0.0.1:18080/v1/chat/completions/missing\"}'); SELECT ai_complete('regression_c','x');",
+    "expected_errno": 4070,
+    "request_count": 1
+  },
+  {
+    "name": "c-response-choices_type",
+    "sql": "CALL DBMS_AI_SERVICE.ALTER_AI_MODEL_ENDPOINT('regression_c_ep','{\"url\": \"http://127.0.0.1:18080/v1/chat/completions/choices_type\"}'); SELECT ai_complete('regression_c','x');",
+    "expected_errno": 4070,
+    "request_count": 1
+  },
+  {
+    "name": "c-response-choices_empty",
+    "sql": "CALL DBMS_AI_SERVICE.ALTER_AI_MODEL_ENDPOINT('regression_c_ep','{\"url\": \"http://127.0.0.1:18080/v1/chat/completions/choices_empty\"}'); SELECT ai_complete('regression_c','x');",
+    "expected_errno": 4070,
+    "request_count": 1
+  },
+  {
+    "name": "c-response-message_type",
+    "sql": "CALL DBMS_AI_SERVICE.ALTER_AI_MODEL_ENDPOINT('regression_c_ep','{\"url\": \"http://127.0.0.1:18080/v1/chat/completions/message_type\"}'); SELECT ai_complete('regression_c','x');",
+    "expected_errno": 4070,
+    "request_count": 1
+  },
+  {
+    "name": "c-response-null",
+    "sql": "CALL DBMS_AI_SERVICE.ALTER_AI_MODEL_ENDPOINT('regression_c_ep','{\"url\": \"http://127.0.0.1:18080/v1/chat/completions/null\"}'); SELECT ai_complete('regression_c','x');",
+    "expected_errno": 4070,
+    "request_count": 1
+  },
+  {
+    "name": "c-response-number",
+    "sql": "CALL DBMS_AI_SERVICE.ALTER_AI_MODEL_ENDPOINT('regression_c_ep','{\"url\": \"http://127.0.0.1:18080/v1/chat/completions/number\"}'); SELECT ai_complete('regression_c','x');",
+    "expected_errno": 4070,
+    "request_count": 1
+  },
+  {
+    "name": "c-response-empty",
+    "sql": "CALL DBMS_AI_SERVICE.ALTER_AI_MODEL_ENDPOINT('regression_c_ep','{\"url\": \"http://127.0.0.1:18080/v1/chat/completions/empty\"}'); SELECT ai_complete('regression_c','x');",
+    "expected_errno": 4070,
+    "request_count": 1
+  },
+  {
+    "name": "c-response-root_array",
+    "sql": "CALL DBMS_AI_SERVICE.ALTER_AI_MODEL_ENDPOINT('regression_c_ep','{\"url\": \"http://127.0.0.1:18080/v1/chat/completions/root_array\"}'); SELECT ai_complete('regression_c','x');",
+    "expected_errno": 4070,
+    "request_count": 1
+  },
+  {
+    "name": "c-response-root_null",
+    "sql": "CALL DBMS_AI_SERVICE.ALTER_AI_MODEL_ENDPOINT('regression_c_ep','{\"url\": \"http://127.0.0.1:18080/v1/chat/completions/root_null\"}'); SELECT ai_complete('regression_c','x');",
+    "expected_errno": 4070,
+    "request_count": 1
+  },
+  {
+    "name": "e-response-missing",
+    "sql": "CALL DBMS_AI_SERVICE.ALTER_AI_MODEL_ENDPOINT('regression_e_ep','{\"url\": \"http://127.0.0.1:18080/v1/embeddings/missing\"}'); SELECT ai_embed('regression_e','x');",
+    "expected_errno": 4070,
+    "request_count": 1
+  },
+  {
+    "name": "e-response-duplicate",
+    "sql": "CALL DBMS_AI_SERVICE.ALTER_AI_MODEL_ENDPOINT('regression_e_ep','{\"url\": \"http://127.0.0.1:18080/v1/embeddings/duplicate\"}'); SELECT ai_embed('regression_e','x');",
+    "expected_errno": 4070,
+    "request_count": 1
+  },
+  {
+    "name": "e-response-index_range",
+    "sql": "CALL DBMS_AI_SERVICE.ALTER_AI_MODEL_ENDPOINT('regression_e_ep','{\"url\": \"http://127.0.0.1:18080/v1/embeddings/index_range\"}'); SELECT ai_embed('regression_e','x');",
+    "expected_errno": 4070,
+    "request_count": 1
+  },
+  {
+    "name": "e-response-index_type",
+    "sql": "CALL DBMS_AI_SERVICE.ALTER_AI_MODEL_ENDPOINT('regression_e_ep','{\"url\": \"http://127.0.0.1:18080/v1/embeddings/index_type\"}'); SELECT ai_embed('regression_e','x');",
+    "expected_errno": 4070,
+    "request_count": 1
+  },
+  {
+    "name": "e-response-bad_element",
+    "sql": "CALL DBMS_AI_SERVICE.ALTER_AI_MODEL_ENDPOINT('regression_e_ep','{\"url\": \"http://127.0.0.1:18080/v1/embeddings/bad_element\"}'); SELECT ai_embed('regression_e','x');",
+    "expected_errno": 4070,
+    "request_count": 1
+  },
+  {
+    "name": "e-response-null_vector",
+    "sql": "CALL DBMS_AI_SERVICE.ALTER_AI_MODEL_ENDPOINT('regression_e_ep','{\"url\": \"http://127.0.0.1:18080/v1/embeddings/null_vector\"}'); SELECT ai_embed('regression_e','x');",
+    "expected_errno": 4070,
+    "request_count": 1
+  },
+  {
+    "name": "instance-alive",
+    "sql": "SELECT 1;",
+    "expected_rows": [
+      "1"
+    ],
+    "request_count": 0
+  },
+  {
+    "name": "restore-normal-endpoints",
+    "sql": "CALL DBMS_AI_SERVICE.ALTER_AI_MODEL_ENDPOINT('regression_c_ep','{\"url\":\"http://127.0.0.1:18080/v1/chat/completions\"}'); CALL DBMS_AI_SERVICE.ALTER_AI_MODEL_ENDPOINT('regression_e_ep','{\"url\":\"http://127.0.0.1:18080/v1/embeddings\"}');",
+    "expected_rows": [],
+    "request_count": 0
+  },
+  {
+    "name": "prompt-longtext-and-structure",
+    "sql": "-- Data and expected predicates specified in CP1-TEST-PLAN.md.\nSELECT JSON_TYPE(JSON_EXTRACT(AI_PROMPT('{0}', JSON_ARRAY(1,TRUE)), '$.args[0]')) = 'ARRAY' AS json_array_preserved;\nSELECT JSON_EXTRACT(AI_PROMPT('{0}', JSON_OBJECT('k',2)), '$.args[0].k') = 2 AS json_object_preserved;\nSELECT JSON_TYPE(JSON_EXTRACT(AI_PROMPT('{0}', CAST('null' AS JSON)), '$.args[0]')) = 'NULL' AS json_null_preserved;\nSELECT JSON_UNQUOTE(JSON_EXTRACT(AI_PROMPT('{0}/{0}/{1}', 'a'), '$.template')) = '{0}/{0}/{1}' AS deferred_validation;\nDROP TABLE IF EXISTS regression_lob;\nCREATE TABLE regression_lob(c LONGTEXT, b BLOB);\nINSERT INTO regression_lob VALUES(REPEAT('长',100000),'ascii');\nSELECT LENGTH(JSON_UNQUOTE(JSON_EXTRACT(AI_PROMPT(c), '$.template'))) = 300000 AS full_template,\n       JSON_UNQUOTE(JSON_EXTRACT(AI_PROMPT('{0}',c),'$.args[0]')) = c AS full_argument,\n       JSON_UNQUOTE(JSON_EXTRACT(AI_PROMPT(b),'$.template')) = 'ascii' AS blob_template\nFROM regression_lob;\nDROP TABLE regression_lob;\n",
+    "expected_rows": [
+      "1",
+      "1",
+      "1",
+      "1",
+      "1\t1\t1"
+    ],
+    "request_count": 0
+  },
+  {
+    "name": "prompt-hex",
+    "sql": "SELECT ai_complete('regression_c',ai_prompt(X'7B307D',X'41')) = 'echo:A';",
+    "expected_rows": [
+      "1"
+    ],
+    "request_count": 1
+  },
+  {
+    "name": "embed-case-short-circuit",
+    "sql": "SELECT id,CASE WHEN id=3 THEN json_length(ai_embed('regression_e',content)) ELSE 0 END FROM regression_batch WHERE id<=4 ORDER BY id;",
+    "expected_rows": [
+      "1\t0",
+      "2\t0",
+      "3\t3",
+      "4\t0"
+    ],
+    "request_count": 1
+  },
+  {
+    "name": "batch-filter-null",
+    "sql": "SELECT id,json_length(ai_embed('regression_e',content)) FROM regression_batch WHERE id IN(1,2,3) ORDER BY id;",
+    "expected_rows": [
+      "1\t3",
+      "2\tNULL",
+      "3\t3"
+    ],
+    "request_count": 1
+  },
+  {
+    "name": "batch-limit-offset",
+    "sql": "SELECT id,json_length(ai_embed('regression_e',content)) FROM regression_batch ORDER BY id LIMIT 1 OFFSET 2;",
+    "expected_rows": [
+      "3\t3"
+    ],
+    "request_count": 1
+  },
+  {
+    "name": "batch-mixed-dimension",
+    "sql": "SELECT id,json_length(ai_embed('regression_e',content,CASE WHEN id=1 THEN 4 ELSE 5 END)) FROM regression_batch WHERE id IN (1,3,4) ORDER BY id;",
+    "expected_rows": [
+      "1\t4",
+      "3\t5",
+      "4\t5"
+    ],
+    "request_count": 2
+  },
+  {
+    "name": "batch-mixed-model",
+    "sql": "SELECT id,json_length(ai_embed(CASE WHEN id=1 THEN 'regression_e' ELSE 'regression_es' END,content)) FROM regression_batch WHERE id IN (1,3,4) ORDER BY id;",
+    "expected_rows": [
+      "1\t3",
+      "3\t3",
+      "4\t3"
+    ],
+    "request_count": 2
+  }
+]
