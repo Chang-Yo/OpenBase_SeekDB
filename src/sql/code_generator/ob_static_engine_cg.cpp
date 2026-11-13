@@ -5569,6 +5569,9 @@ int ObStaticEngineCG::generate_spec(ObLogJsonTable &op, ObJsonTableSpec &spec,
   }
   if (OB_SUCC(ret)) {
     spec.table_type_ = op.get_table_type();  // table func type
+    // Existing JSON/XML/UNNEST nodes retain parent values across nested rows.
+    // Only file scans implement independent vectorized output rows.
+    if (spec.table_type_ != OB_FILE_TABLE_TYPE) spec.max_batch_size_ = 0;
 
     if (OB_FAIL(spec.dup_origin_column_defs(op.get_origin_cols_def()))) {
     }

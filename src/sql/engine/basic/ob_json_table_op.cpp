@@ -16,6 +16,7 @@
 
 #define USING_LOG_PREFIX SQL_ENG
 #include "ob_json_table_op.h"
+#include "common/timezone/ob_time_convert.h"
 #include "sql/engine/expr/ob_expr_multi_mode_func_helper.h"
 #include "sql/engine/expr/ob_expr_json_value.h"
 #include "sql/engine/expr/ob_expr_json_query.h"
@@ -581,8 +582,164 @@ int ObJsonTableOp::generate_column_trees(JtColTreeNode*& root)
   return ret;
 }
 
+int ObJsonTableOp::open_file_scan()
+{
+  INIT_SUCC(ret);
+  bool enabled = false;
+  ObString secure;
+  const auto &params = MY_SPEC.namespace_def_;
+  auto text = [&](int i) { return std::string(params[i].ptr(),params[i].length()); };
+  std::string error;
+  if (params.count() != 8) {
+    ret = OB_ERR_UNEXPECTED;
+  } else if (OB_FAIL(ctx_.get_my_session()->get_sys_variable(share::SYS_VAR_ENABLE_FILE_SQL,enabled))) {
+  } else if (!enabled) {
+    ret = OB_NOT_SUPPORTED;
+    LOG_USER_ERROR(OB_NOT_SUPPORTED,"file SQL is disabled");
+  } else if (OB_FAIL(ctx_.get_my_session()->get_sys_variable(share::SYS_VAR_SECURE_FILE_PRIV,secure))) {
+  } else {
+    file_sql::CsvOptions options;
+    options.parquet = text(7) == "parquet";
+    if (options.parquet) {
+      std::vector<uint32_t> indices;
+      for (int64_t i = 1; i < MY_SPEC.cols_def_.count(); ++i) {
+        if (MY_SPEC.cols_def_[i]->output_column_idx_ >= 0) indices.push_back(i-1);
+      }
+      file_reader_.set_parquet_projection(indices);
+    }
+    options.discover = text(7) == "glob";
+    options.json_lines = text(7) == "jsonl";
+    options.header = text(1) == "1";
+    if (options.json_lines) {
+      std::vector<std::string> names;
+      for (int64_t i = 1; i < MY_SPEC.cols_def_.count(); ++i) {
+        const auto &name = MY_SPEC.cols_def_[i]->col_name_;
+        names.emplace_back(name.ptr(),name.length());
+      }
+      file_reader_.set_json_columns(names);
+    }
+    options.delimiter = params[2].ptr()[0]; options.quote = params[3].ptr()[0];
+    options.escape = params[4].ptr()[0]; options.nullstr = text(5);
+    if (!file_reader_.open(text(0),std::string(secure.ptr(),secure.length()),options,error)) {
+      ret = OB_INVALID_ARGUMENT;
+    } else {
+      const auto &v = file_reader_.identity();
+      std::string actual = std::to_string(v.device)+","+std::to_string(v.inode)+","+std::to_string(v.size)
+        +","+std::to_string(v.mtime_sec)+","+std::to_string(v.mtime_nsec)
+        +","+std::to_string(v.ctime_sec)+","+std::to_string(v.ctime_nsec);
+      if (actual != text(6)) {
+        error = "input file changed after schema inference";
+        ret = OB_INVALID_ARGUMENT;
+      } else if (options.header && !options.json_lines && !options.discover && !options.parquet) {
+        bool eof = false;
+        if (!file_reader_.next(file_row_,eof,error) || eof) ret = OB_INVALID_ARGUMENT;
+      }
+    }
+    if (OB_FAIL(ret)) {
+      file_reader_.close();
+      LOG_USER_ERROR(OB_INVALID_ARGUMENT,error.c_str());
+    }
+  }
+  return ret;
+}
+
+int ObJsonTableOp::next_file_row()
+{
+  INIT_SUCC(ret);
+  clear_evaluated_flag();
+  bool eof = false;
+  std::string error;
+  if (!file_reader_.unchanged(error) || !file_reader_.next(file_row_,eof,error)) {
+    ret = OB_INVALID_ARGUMENT;
+    LOG_USER_ERROR(OB_INVALID_ARGUMENT,error.c_str());
+  } else if (eof) {
+    ret = OB_ITER_END;
+  } else if (file_row_.size() + 1 != MY_SPEC.cols_def_.count()) {
+    ret = OB_INVALID_ARGUMENT;
+    LOG_USER_ERROR(OB_INVALID_ARGUMENT,"CSV record width differs from inferred schema");
+  } else {
+    for (int64_t i = 1; OB_SUCC(ret) && i < MY_SPEC.cols_def_.count(); ++i) {
+      const auto &column = *MY_SPEC.cols_def_[i];
+      if (column.output_column_idx_ < 0) continue;
+      if (column.output_column_idx_ >= MY_SPEC.column_exprs_.count()) { ret = OB_ERR_UNEXPECTED; break; }
+      ObExpr &expr = *MY_SPEC.column_exprs_[column.output_column_idx_];
+      ObDatum &datum = expr.locate_datum_for_write(eval_ctx_);
+      const auto &cell = file_row_[i-1];
+      if (cell.is_null) datum.set_null();
+      else {
+        ObString value(cell.text.size(),cell.text.data());
+        switch (expr.datum_meta_.type_) {
+          case ObIntType: datum.set_int(cell.native ? cell.integer : std::strtoll(cell.text.c_str(),nullptr,10)); break;
+          case ObTinyIntType: datum.set_int(cell.native ? cell.integer : (cell.text == "true" || cell.text == "TRUE")); break;
+          case ObDoubleType: datum.set_double(cell.native ? cell.floating : std::strtod(cell.text.c_str(),nullptr)); break;
+          case ObDateType: {
+            if (cell.native) { datum.set_date(cell.integer); break; }
+            int32_t days = 0;
+            OZ (ObTimeConverter::str_to_date(value,days));
+            if (OB_SUCC(ret)) datum.set_date(days);
+            break;
+          }
+          case ObDateTimeType: {
+            if (cell.native) { datum.set_datetime(cell.integer); break; }
+            int64_t timestamp = 0;
+            ObTimeConvertCtx cvrt(nullptr,false);
+            OZ (ObTimeConverter::str_to_datetime(value,cvrt,timestamp));
+            if (OB_SUCC(ret)) datum.set_datetime(timestamp);
+            break;
+          }
+          default: {
+            char *buffer = expr.get_str_res_mem(eval_ctx_,value.length());
+            if (value.length() > 0 && !buffer) ret = OB_ALLOCATE_MEMORY_FAILED;
+            else {
+              if (value.length() > 0) MEMCPY(buffer,value.ptr(),value.length());
+              datum.set_string(buffer,value.length());
+            }
+            break;
+          }
+        }
+      }
+      expr.get_eval_info(eval_ctx_).evaluated_ = true;
+    }
+  }
+  return ret;
+}
+
+int ObJsonTableOp::inner_get_next_batch(int64_t max_row_cnt)
+{
+  INIT_SUCC(ret);
+  file_batch_allocator_.reuse();
+  const int64_t capacity = std::min<int64_t>(max_row_cnt,MY_SPEC.max_batch_size_);
+  ObEvalCtx::BatchInfoScopeGuard guard(eval_ctx_);
+  guard.set_batch_size(capacity);
+  brs_.size_ = 0;
+  brs_.end_ = false;
+  brs_.skip_->reset(capacity);
+  for (int64_t i = 0; OB_SUCC(ret) && i < capacity; ++i) {
+    guard.set_batch_idx(i);
+    ret = inner_get_next_row();
+    if (ret == OB_ITER_END) {
+      ret = OB_SUCCESS;
+      brs_.end_ = true;
+      break;
+    }
+    // next_file_row owns each string in its expression result buffer.
+    // Do not locate_datum_for_write again: it resets dynamic-string pointers.
+    if (OB_SUCC(ret)) ++brs_.size_;
+  }
+  for (int64_t c = 0; c < MY_SPEC.column_exprs_.count(); ++c) {
+    ObExpr &expr = *MY_SPEC.column_exprs_[c];
+    for (int64_t i = 0; i < brs_.size_; ++i) {
+      guard.set_batch_idx(i);
+      expr.set_evaluated_flag(eval_ctx_);
+      expr.set_evaluated_projected(eval_ctx_);
+    }
+  }
+  return ret;
+}
+
 int ObJsonTableOp::inner_open()
 {
+  if (MY_SPEC.table_type_ == OB_FILE_TABLE_TYPE) return open_file_scan();
   INIT_SUCC(ret);
   if (OB_FAIL(init())) {
   } else if (MY_SPEC.value_exprs_.empty()) {
@@ -597,6 +754,10 @@ int ObJsonTableOp::inner_open()
 
 int ObJsonTableOp::inner_rescan()
 {
+  if (MY_SPEC.table_type_ == OB_FILE_TABLE_TYPE) {
+    int ret = ObOperator::inner_rescan();
+    return ret == OB_SUCCESS ? open_file_scan() : ret;
+  }
   int ret = OB_SUCCESS;
   if (OB_FAIL(ObOperator::inner_rescan())) {
   } else {
@@ -684,6 +845,11 @@ int ObJsonTableOp::init()
 
 int ObJsonTableOp::inner_close()
 {
+  if (MY_SPEC.table_type_ == OB_FILE_TABLE_TYPE) {
+    file_reader_.close();
+    file_row_.clear();
+    return OB_SUCCESS;
+  }
   INIT_SUCC(ret);
   if (OB_NOT_NULL(root_)) {
     if (OB_FAIL(root_->reset(&jt_ctx_))) {
@@ -722,6 +888,9 @@ void ScanNode::reset_reg_columns(JtScanCtx* ctx)
 
 void ObJsonTableOp::destroy()
 {
+  file_batch_allocator_.reset();
+  file_reader_.close();
+  std::vector<file_sql::Cell>().swap(file_row_);
   ObOperator::destroy();
 }
 
@@ -1400,6 +1569,7 @@ int UnionNode::get_next_row(void* in, JtScanCtx* ctx, bool& is_null_value)
 // json/xml table function inner
 int ObJsonTableOp::inner_get_next_row()
 {
+  if (MY_SPEC.table_type_ == OB_FILE_TABLE_TYPE) return next_file_row();
   INIT_SUCC(ret);
   bool is_root_null = false;
   if (!(jt_ctx_.is_json_table_func()

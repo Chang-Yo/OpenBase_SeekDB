@@ -2098,6 +2098,17 @@ int ObSqlParameterization::mark_tree(ParseNode *tree ,SqlInfo &sql_info)
       if (OB_FAIL(mark_args(tree, mark_arr, ARGS_NUMBER_SEVEN, sql_info))) {
       }
     }
+  } else if (T_FILE_TABLE_EXPRESSION == tree->type_ || T_COPY_FILE == tree->type_) {
+    // File paths/options determine the inferred schema or output destination.
+    // Keep them as literals, as JSON_TABLE already does for its schema paths.
+    if (3 != tree->num_child_) {
+      ret = OB_INVALID_ARGUMENT;
+    } else {
+      bool mark_arr[3] = {false, tree->children_[1] != nullptr,
+                          tree->type_ == T_COPY_FILE && tree->children_[2] != nullptr};
+      if (OB_FAIL(mark_args(tree, mark_arr, 3, sql_info))) {
+      }
+    }
   } else if (T_JSON_TABLE_EXPRESSION == tree->type_) {
     if (5 != tree->num_child_) {
       ret = OB_INVALID_ARGUMENT;

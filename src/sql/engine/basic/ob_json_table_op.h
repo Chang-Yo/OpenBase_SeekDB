@@ -18,6 +18,7 @@
 #define OCEANBASE_BASIC_OB_JSON_TABLE_OP_H_
 
 #include "sql/engine/ob_operator.h"
+#include "sql/engine/basic/file_scan_utils.h"
 #include "lib/charset/ob_charset.h"
 #include "common/json_type/ob_json_tree.h"
 #include "common/json_type/ob_json_base.h"
@@ -207,7 +208,7 @@ public:
   virtual int inner_rescan() override;
   virtual int switch_iterator() override;
   virtual int inner_get_next_row() override;
-  //virtual int inner_get_next_batch(int64_t max_row_cnt) override;
+  virtual int inner_get_next_batch(int64_t max_row_cnt) override;
   virtual int inner_close() override;
   virtual void destroy() override;
   ObJsonNull* get_js_null() { return &j_null_; }
@@ -219,6 +220,11 @@ public:
                K_(col_count));
 
 private:
+  int open_file_scan();
+  int next_file_row();
+  common::ObArenaAllocator file_batch_allocator_;
+  file_sql::CsvReader file_reader_;
+  std::vector<file_sql::Cell> file_row_;
   int init();
   int reset_variable();  // reset var in rescan 
   int init_data_obj(); // allocate data_ array

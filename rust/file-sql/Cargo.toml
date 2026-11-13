@@ -1,0 +1,17 @@
+[package]
+name = "file-sql"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+name = "file_sql"
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+cxx = "1"
+thrift = "0.17"
+parquet = { version = "=57.0.0", default-features = false, features = ["snap", "flate2-zlib-rs", "zstd"] }
+
+[build-dependencies]
+cxx-build = "1"

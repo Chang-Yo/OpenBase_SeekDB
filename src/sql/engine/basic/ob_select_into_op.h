@@ -17,6 +17,7 @@
 #ifndef SRC_SQL_ENGINE_BASIC_OB_SELECT_INTO_OP_H_
 #define SRC_SQL_ENGINE_BASIC_OB_SELECT_INTO_OP_H_
 
+#include "sql/engine/basic/file_scan_utils.h"
 #include "sql/engine/ob_operator.h"
 #include "lib/file/ob_file.h"
 #include "sql/engine/cmd/ob_load_data_parser.h"
@@ -196,6 +197,11 @@ public:
 
 private:
   int init_env_common();
+  int open_copy_file();
+  int write_copy_row();
+  int execute_copy(bool batches);
+  file_sql::CsvWriter copy_writer_;
+  bool copy_finished_ = false;
   int init_csv_env();
   void set_csv_format_options();
 

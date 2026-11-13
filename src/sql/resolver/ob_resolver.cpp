@@ -16,6 +16,9 @@
 
 #define USING_LOG_PREFIX SQL_RESV
 #include "sql/resolver/ob_resolver.h"
+#include "sql/parser/ob_parser.h"
+#include "sql/resolver/dml/ob_select_resolver.h"
+#include <string>
 #include "lib/utility/ob_smart_call.h"
 #include "lib/stat/ob_diagnostic_info_guard.h"
 #include "sql/resolver/cmd/ob_alter_system_resolver.h"
@@ -133,6 +136,146 @@ int ObResolver::select_stmt_resolver_func(ObResolverParams &params, const ParseN
     if (OB_FAIL(SMART_CALL(stmt_resolver.resolve(parse_tree)))) {
     }
     stmt = stmt_resolver.get_basic_stmt();
+  }
+  return ret;
+}
+
+int ObResolver::resolve_copy_file(const ParseNode &tree, ObStmt *&stmt)
+{
+  INIT_SUCC(ret);
+  bool enabled = false;
+  OZ (params_.session_info_->get_sys_variable(SYS_VAR_ENABLE_FILE_SQL,enabled));
+  if (OB_SUCC(ret) && !enabled) { ret = OB_NOT_SUPPORTED; LOG_USER_ERROR(OB_NOT_SUPPORTED,"file SQL is disabled"); }
+  if (OB_SUCC(ret) && (tree.num_child_ != 3 || !tree.children_[0] || !tree.children_[1])) ret = OB_INVALID_ARGUMENT;
+  if (OB_SUCC(ret)) {
+    const ParseNode *query = tree.children_[0];
+    ParseResult parsed;
+    if (query->type_ != T_SELECT) {
+      // Quote schema/table identifiers, never interpolate unquoted user SQL.
+      std::string sql = "SELECT * FROM ";
+      bool first = true;
+      for (int i = 0; i < query->num_child_; ++i) {
+        const ParseNode *name = query->children_[i];
+        if (!name) continue;
+        if (!first) sql += "."; first = false; sql += "`";
+        for (int64_t j = 0; j < name->str_len_; ++j) {
+          if (name->str_value_[j] == '`') sql += '`';
+          sql += name->str_value_[j];
+        }
+        sql += "`";
+      }
+      ObParser parser(*params_.allocator_,params_.session_info_->get_sql_mode(),params_.session_info_->get_charsets4parser());
+      OZ (parser.parse(ObString(sql.size(),sql.data()),parsed));
+      if (OB_SUCC(ret)) query = parsed.result_tree_->children_[0];
+    }
+    if (OB_SUCC(ret)) OZ (select_stmt_resolver_func<ObSelectResolver>(params_,*query,stmt));
+  }
+  if (OB_SUCC(ret)) {
+    auto *select = static_cast<ObSelectStmt *>(stmt);
+    if (select->has_select_into()) ret = OB_INVALID_ARGUMENT;
+    auto *into = static_cast<ObSelectIntoItem *>(params_.allocator_->alloc(sizeof(ObSelectIntoItem)));
+    if (!into) ret = OB_ALLOCATE_MEMORY_FAILED;
+    if (OB_SUCC(ret)) {
+      new(into) ObSelectIntoItem();
+      into->into_type_ = T_COPY_FILE;
+      ObString path;
+      OZ (ob_write_string(*params_.allocator_,ObString(tree.children_[1]->str_len_,tree.children_[1]->str_value_),path));
+      into->outfile_name_.set_varchar(path);
+      // Existing user_vars_ serialization carries COPY options followed by header names.
+      const char *defaults[] = {"0",",","\"","\"","NULL"};
+      for (auto value : defaults) { ObString copy; OZ (ob_write_string(*params_.allocator_,ObString(value),copy)); OZ (into->user_vars_.push_back(copy)); }
+      const ParseNode *options = tree.children_[2];
+      for (int i = 0; OB_SUCC(ret) && options && i < options->num_child_; ++i) {
+        const ParseNode *option = options->children_[i];
+        if (!option || option->num_child_ != 2 || !option->children_[0]) { ret = OB_INVALID_ARGUMENT; break; }
+        const ParseNode *key_node = option->children_[0], *value_node = option->children_[1];
+        ObString key(key_node->str_len_,key_node->str_value_);
+        ObString value = value_node ? ObString(value_node->str_len_,value_node->str_value_) : ObString("1");
+        int slot = -1;
+        if (key.case_compare("format") == 0) {
+          if (value.case_compare("csv") != 0) ret = OB_NOT_SUPPORTED;
+        } else if (key.case_compare("header") == 0) {
+          slot = 0;
+          if (value_node && (value_node->type_ == T_BOOL || value_node->type_ == T_INT)) value = ObString(value_node->value_ ? "1" : "0");
+          else if (value.case_compare("true") == 0) value = ObString("1");
+          else if (value.case_compare("false") == 0) value = ObString("0");
+          else if (value != "1" && value != "0") ret = OB_INVALID_ARGUMENT;
+        } else if (key.case_compare("delimiter") == 0 || key.case_compare("delim") == 0) slot = 1;
+        else if (key.case_compare("quote") == 0) slot = 2;
+        else if (key.case_compare("escape") == 0) slot = 3;
+        else if (key.case_compare("nullstr") == 0) slot = 4;
+        else ret = OB_INVALID_ARGUMENT;
+        if (OB_SUCC(ret) && slot >= 0) {
+          if (slot >= 1 && slot <= 3 && value.length() != 1) ret = OB_INVALID_ARGUMENT;
+          else OZ (ob_write_string(*params_.allocator_,value,into->user_vars_.at(slot)));
+        }
+      }
+      for (int64_t i = 0; OB_SUCC(ret) && i < select->get_select_item_size(); ++i) {
+        const auto &item = select->get_select_item(i); ObString name;
+        OZ (ob_write_string(*params_.allocator_,item.alias_name_.empty() ? item.expr_name_ : item.alias_name_,name));
+        OZ (into->user_vars_.push_back(name));
+      }
+      if (OB_SUCC(ret)) select->set_select_into(into);
+    }
+  }
+  return ret;
+}
+
+static bool contains_file_table(const ParseNode *node)
+{
+  if (!node) return false;
+  if (node->type_ == T_FILE_TABLE_EXPRESSION) return true;
+  for (int64_t i = 0; i < node->num_child_; ++i) {
+    if (contains_file_table(node->children_[i])) return true;
+  }
+  return false;
+}
+
+int ObResolver::resolve_describe_select(const ParseNode &tree, ObStmt *&stmt)
+{
+  INIT_SUCC(ret);
+  ObStmt *source = nullptr;
+  OZ (select_stmt_resolver_func<ObSelectResolver>(params_,tree,source));
+  if (OB_SUCC(ret) && (!source || !source->is_select_stmt())) ret = OB_ERR_UNEXPECTED;
+  std::string sql;
+  // Hex literals avoid SQL-mode-dependent string escaping and preserve Unicode names.
+  auto literal = [](const ObString &value) {
+    static const char hex[] = "0123456789abcdef";
+    std::string out = "CONVERT(X'";
+    for (int i = 0; i < value.length(); ++i) {
+      unsigned char c = value.ptr()[i]; out += hex[c >> 4]; out += hex[c & 15];
+    }
+    return out + "' USING utf8mb4)";
+  };
+  if (OB_SUCC(ret)) {
+    const auto &select = *static_cast<ObSelectStmt *>(source);
+    for (int64_t i = 0; i < select.get_select_item_size(); ++i) {
+      const auto &item = select.get_select_item(i);
+      if (!item.expr_) { ret = OB_ERR_UNEXPECTED; break; }
+      const char *type = "VARCHAR";
+      switch (item.expr_->get_data_type()) {
+        case ObIntType: type = "BIGINT"; break;
+        case ObTinyIntType: type = "BOOLEAN"; break;
+        case ObDoubleType: type = "DOUBLE"; break;
+        case ObDateType: type = "DATE"; break;
+        case ObDateTimeType: type = "DATETIME"; break;
+        default: break;
+      }
+      const ObString &name = item.alias_name_.empty() ? item.expr_name_ : item.alias_name_;
+      if (i) sql += " UNION ALL ";
+      sql += "SELECT " + literal(name) + " AS column_name," + literal(ObString(type))
+        + " AS column_type," + literal(ObString(item.expr_->get_result_type().has_result_flag(NOT_NULL_FLAG) ? "NO" : "YES"))
+        + " AS `null`,NULL AS `key`,NULL AS `default`,NULL AS extra";
+    }
+  }
+  if (OB_SUCC(ret)) {
+    ParseResult parsed;
+    ObParser parser(*params_.allocator_,params_.session_info_->get_sql_mode(),params_.session_info_->get_charsets4parser());
+    OZ (parser.parse(ObString(sql.size(),sql.data()),parsed));
+    if (OB_SUCC(ret)) {
+      if (!parsed.result_tree_ || parsed.result_tree_->num_child_ != 1 || !parsed.result_tree_->children_[0]) ret = OB_ERR_UNEXPECTED;
+      else OZ (select_stmt_resolver_func<ObSelectResolver>(params_,*parsed.result_tree_->children_[0],stmt));
+    }
   }
   return ret;
 }
@@ -472,8 +615,23 @@ int ObResolver::resolve(IsPrepared if_prepared, const ParseNode &parse_tree, ObS
         REGISTER_STMT_RESOLVER(Revoke);
         break;
       }
+      case T_COPY_FILE: {
+        ret = resolve_copy_file(*real_parse_tree,stmt);
+        break;
+      }
       case T_EXPLAIN: {
-        REGISTER_STMT_RESOLVER(Explain);
+        if (real_parse_tree->children_[0] && real_parse_tree->children_[0]->type_ == T_INT
+            && real_parse_tree->children_[0]->value_ == 1 && real_parse_tree->children_[4]
+            && real_parse_tree->children_[4]->type_ == T_SELECT
+            && contains_file_table(real_parse_tree->children_[4])) {
+          ret = resolve_describe_select(*real_parse_tree->children_[4],stmt);
+        } else {
+          if (real_parse_tree->children_[0] && real_parse_tree->children_[0]->type_ == T_INT
+              && real_parse_tree->children_[0]->value_ == 1) {
+            real_parse_tree->children_[0] = nullptr;
+          }
+          REGISTER_STMT_RESOLVER(Explain);
+        }
         break;
       }
       case T_ALTER_SYSTEM_SET: {

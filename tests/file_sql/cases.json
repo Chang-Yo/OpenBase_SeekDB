@@ -1,0 +1,366 @@
+[
+  {
+    "id": "default_off",
+    "sql": "SELECT @@session.enable_file_sql",
+    "rows": [
+      [
+        0
+      ]
+    ]
+  },
+  {
+    "id": "disabled_read",
+    "sql": "SELECT * FROM read_csv('{data}/left.csv')",
+    "error": 1235
+  },
+  {
+    "id": "enable",
+    "sql": "SET SESSION enable_file_sql=ON",
+    "rows": []
+  },
+  {
+    "id": "aggregate",
+    "sql": "SELECT COUNT(*),SUM(value),AVG(value),MIN(value),MAX(value) FROM read_csv('{data}/left.csv')",
+    "rows": [
+      [
+        3,
+        30,
+        15,
+        10,
+        20
+      ]
+    ]
+  },
+  {
+    "id": "inner_join",
+    "sql": "SELECT l.id,l.name,r.label FROM read_csv('{data}/left.csv') l INNER JOIN read_ndjson('{data}/right.jsonl') r ON l.id=r.id ORDER BY l.id",
+    "rows": [
+      [
+        2,
+        "B",
+        "b"
+      ],
+      [
+        3,
+        "C",
+        "c"
+      ]
+    ]
+  },
+  {
+    "id": "left_join",
+    "sql": "SELECT l.id,r.label FROM read_csv('{data}/left.csv') l LEFT JOIN read_json('{data}/right.jsonl') r ON l.id=r.id ORDER BY l.id",
+    "rows": [
+      [
+        1,
+        null
+      ],
+      [
+        2,
+        "b"
+      ],
+      [
+        3,
+        "c"
+      ]
+    ]
+  },
+  {
+    "id": "having",
+    "sql": "SELECT value,COUNT(*) n FROM read_csv('{data}/left.csv') GROUP BY value HAVING COUNT(*)=1 ORDER BY value LIMIT 2",
+    "rows": [
+      [
+        null,
+        1
+      ],
+      [
+        10,
+        1
+      ]
+    ]
+  },
+  {
+    "id": "describe",
+    "sql": "DESCRIBE SELECT * FROM read_csv('{data}/left.csv')",
+    "columns": [
+      "column_name",
+      "column_type",
+      "null",
+      "key",
+      "default",
+      "extra"
+    ],
+    "rows": [
+      [
+        "id",
+        "BIGINT",
+        "NO",
+        null,
+        null,
+        null
+      ],
+      [
+        "value",
+        "BIGINT",
+        "YES",
+        null,
+        null,
+        null
+      ],
+      [
+        "name",
+        "VARCHAR",
+        "NO",
+        null,
+        null,
+        null
+      ]
+    ]
+  },
+  {
+    "id": "copy",
+    "sql": "COPY (SELECT id,name FROM read_csv('{data}/left.csv') ORDER BY id) TO '{data}/export.csv' (FORMAT csv, HEADER, NULLSTR 'NULL')",
+    "rows": []
+  },
+  {
+    "id": "copy_roundtrip",
+    "sql": "SELECT * FROM read_csv('{data}/export.csv') ORDER BY id",
+    "rows": [
+      [
+        1,
+        "A"
+      ],
+      [
+        2,
+        "B"
+      ],
+      [
+        3,
+        "C"
+      ]
+    ]
+  },
+  {
+    "id": "json_table_regression",
+    "sql": "SELECT j.id,j.name FROM JSON_TABLE('[{\"id\":1,\"name\":\"a\"},{\"id\":2,\"name\":\"longer\"}]','$[*]' COLUMNS(id INT PATH '$.id',name VARCHAR(30) PATH '$.name')) j ORDER BY id",
+    "rows": [
+      [
+        1,
+        "a"
+      ],
+      [
+        2,
+        "longer"
+      ]
+    ]
+  },
+  {
+    "id": "plain_sql",
+    "sql": "SELECT 2+3, UPPER('abc')",
+    "rows": [
+      [
+        5,
+        "ABC"
+      ]
+    ]
+  },
+  {
+    "id": "nested_reject",
+    "sql": "SELECT * FROM read_json('{data}/nested.jsonl')",
+    "expect_error": true
+  },
+  {
+    "id": "bad_width",
+    "sql": "SELECT * FROM read_csv('{data}/bad.csv')",
+    "expect_error": true
+  },
+  {
+    "id": "sample_reject",
+    "sql": "SELECT * FROM read_csv('{data}/left.csv',sample_size=1)",
+    "error": 1235
+  },
+  {
+    "id": "batch_count_sum",
+    "sql": "SELECT COUNT(*),SUM(id),SUM(value),COUNT(value) FROM read_csv('{data}/batch.csv')",
+    "rows": [
+      [
+        2053,
+        2106378,
+        5414643,
+        1759
+      ]
+    ]
+  },
+  {
+    "id": "batch_expression",
+    "sql": "SELECT id,CONCAT(label,'!'),value+1 FROM read_csv('{data}/batch.csv') WHERE id IN (0,255,256,511,512,1023,1024,2047,2048,2052) ORDER BY id",
+    "rows": [
+      [
+        0,
+        "row_0_!",
+        null
+      ],
+      [
+        255,
+        "row_255_!",
+        766
+      ],
+      [
+        256,
+        "row_256_x!",
+        769
+      ],
+      [
+        511,
+        "row_511_x!",
+        null
+      ],
+      [
+        512,
+        "row_512_xx!",
+        1537
+      ],
+      [
+        1023,
+        "row_1023_xxx!",
+        3070
+      ],
+      [
+        1024,
+        "row_1024_xxxx!",
+        3073
+      ],
+      [
+        2047,
+        "row_2047_xxxxxxx!",
+        6142
+      ],
+      [
+        2048,
+        "row_2048_xxxxxxxx!",
+        6145
+      ],
+      [
+        2052,
+        "row_2052_xxxxxxxxxxxx!",
+        6157
+      ]
+    ]
+  },
+  {
+    "id": "copy_no_overwrite",
+    "sql": "COPY (SELECT 99 AS id) TO '{data}/export.csv' (FORMAT csv, HEADER)",
+    "expect_error": true
+  },
+  {
+    "id": "copy_existing_intact",
+    "sql": "SELECT * FROM read_csv('{data}/export.csv') ORDER BY id",
+    "rows": [
+      [
+        1,
+        "A"
+      ],
+      [
+        2,
+        "B"
+      ],
+      [
+        3,
+        "C"
+      ]
+    ]
+  },
+  {
+    "id": "copy_query_failure",
+    "sql": "COPY (SELECT * FROM read_csv('{data}/bad.csv')) TO '{data}/must_not_exist.csv' (FORMAT csv, HEADER)",
+    "expect_error": true
+  },
+  {
+    "id": "glob_export",
+    "sql": "SELECT SUBSTRING_INDEX(file,'/',-1) FROM glob('{data}/export*.csv')",
+    "rows": [
+      [
+        "export.csv"
+      ]
+    ]
+  },
+  {
+    "id": "parquet_public",
+    "sql": "SELECT c1 FROM read_parquet('{data}/simple.parquet') ORDER BY c1",
+    "rows": [
+      [
+        0
+      ],
+      [
+        1
+      ],
+      [
+        2
+      ],
+      [
+        3
+      ],
+      [
+        4
+      ],
+      [
+        5
+      ],
+      [
+        6
+      ]
+    ]
+  },
+  {
+    "id": "parquet_aggregate",
+    "sql": "SELECT COUNT(*),SUM(c1) FROM read_parquet('{data}/simple.parquet')",
+    "rows": [
+      [
+        7,
+        21
+      ]
+    ]
+  },
+  {
+    "id": "parquet_join",
+    "sql": "SELECT p.c1,c.value FROM read_parquet('{data}/simple.parquet') p JOIN read_csv('{data}/left.csv') c ON p.c1=c.id ORDER BY p.c1",
+    "rows": [
+      [
+        1,
+        10
+      ],
+      [
+        2,
+        20
+      ],
+      [
+        3,
+        null
+      ]
+    ]
+  },
+  {
+    "id": "parquet_label_projection",
+    "sql": "SELECT label FROM read_parquet('{data}/multigroup.parquet') WHERE id IN (0,1,3,4,6,7) ORDER BY id",
+    "rows": [
+      [
+        "g0a"
+      ],
+      [
+        null
+      ],
+      [
+        "g1a"
+      ],
+      [
+        null
+      ],
+      [
+        "g2a"
+      ],
+      [
+        null
+      ]
+    ]
+  }
+]

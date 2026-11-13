@@ -523,7 +523,7 @@ class ObLogJsonTable;
 class ObJsonTableSpec;
 class ObJsonTableOp;
 REGISTER_OPERATOR(ObLogJsonTable, PHY_JSON_TABLE, ObJsonTableSpec,
-                  ObJsonTableOp, NOINPUT);
+                  ObJsonTableOp, NOINPUT, VECTORIZED_OP);
 
 class ObLogOptimizerStatsGathering;
 class ObOptimizerStatsGatheringSpec;
