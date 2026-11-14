@@ -214,6 +214,8 @@ public:
   @param[out] is_null    the flag for null situation
   @return Returns OB_SUCCESS on success, error code otherwise.
   */
+  static int eval_json_doc_batch(const ObExpr &expr, ObEvalCtx &ctx,
+                                 const ObBitVector &skip, const int64_t batch_size);
   static int get_json_doc(const ObExpr &expr, ObEvalCtx &ctx,
                           MultimodeAlloctor &allocator,
                           uint16_t index, ObIJsonBase*& j_base,

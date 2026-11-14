@@ -170,6 +170,7 @@ int ObExprJsonLength::cg_expr(ObExprCGCtx &expr_cg_ctx, const ObRawExpr &raw_exp
   UNUSED(expr_cg_ctx);
   UNUSED(raw_expr);
   rt_expr.eval_func_ = eval_json_length;
+    rt_expr.eval_batch_func_ = ObJsonExprHelper::eval_json_doc_batch;
   return OB_SUCCESS;
 }
 

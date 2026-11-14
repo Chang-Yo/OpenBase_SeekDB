@@ -1,0 +1,18 @@
+select json_type(json_extract(ai_prompt('{0}',json_array(1,true)), '$.args[0]')) = 'ARRAY' as array_preserved;
+array_preserved
+1
+select json_extract(ai_prompt('{0}',json_object('k',2)), '$.args[0].k') = 2 as object_preserved;
+object_preserved
+1
+select json_type(json_extract(ai_prompt('{0}',cast('null' as json)), '$.args[0]')) = 'NULL' as json_null_preserved;
+json_null_preserved
+1
+select json_unquote(json_extract(ai_prompt(X'7B307D',X'41'),'$.args[0]')) = 'A' as hex_argument;
+hex_argument
+1
+select length(json_unquote(json_extract(ai_prompt(repeat('长',100000)), '$.template'))) = 300000 as long_template;
+long_template
+1
+select json_unquote(json_extract(ai_prompt('{0}/{1}', 'a'),'$.template')) = '{0}/{1}' as deferred_placeholder;
+deferred_placeholder
+1

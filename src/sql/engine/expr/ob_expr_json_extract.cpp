@@ -216,6 +216,7 @@ int ObExprJsonExtract::cg_expr(ObExprCGCtx &expr_cg_ctx, const ObRawExpr &raw_ex
       rt_expr.eval_func_ = eval_json_extract_null;
   } else {
       rt_expr.eval_func_ = eval_json_extract;
+    rt_expr.eval_batch_func_ = ObJsonExprHelper::eval_json_doc_batch;
   }
   return OB_SUCCESS;
 }
